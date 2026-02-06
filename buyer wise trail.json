@@ -1,0 +1,164 @@
+{
+  "name": "buyer wise trail",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2a2c8530-b482-43f6-9b62-35c03e6642fb",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk",
+          "mode": "list",
+          "cachedResultName": "Inline QC form",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1985f98d-4647-4d42-9dd9-2f7dae69dbe3",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "JGx3Wwk2NRCBaXkR",
+          "name": "Dbl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = {};\n\nfor (const item of items) {\n  const buyer = item.json[\"Buyer name \"] || item.json[\"Buyer name\"]; \n  const inspected = Number(item.json[\"Inspected qty \"]) || Number(item.json[\"Inspected qty\"]) || 0;\n  const defectRaw = item.json[\"Defect type \"] || item.json[\"Defect type\"] || \"\";\n\n  if (buyer) {\n    const buyerName = buyer.trim();\n    if (!result[buyerName]) {\n      result[buyerName] = {\n        buyer: buyerName,\n        total_inspected: 0,\n        total_defect: 0,\n        defects: {}\n      };\n    }\n\n    result[buyerName].total_inspected += inspected;\n\n    // Regex update: Bracket er vitorer songkhya ebong comma handle korar jonno\n    const defectRegex = /([a-zA-Z\\s/-]+)\\s*\\((\\d+)\\)/g;\n    let match;\n\n    while ((match = defectRegex.exec(defectRaw)) !== null) {\n      // match[1] hosse defect er naam, match[2] hosse bracket er vitorer songkhya\n      let typeName = match[1].trim(); \n      \n      // Jodi name er shuru ba sheshe comma thake seta remove korbe\n      typeName = typeName.replace(/^,+|,+$/g, '').trim();\n      \n      const typeCount = parseInt(match[2]) || 0; \n\n      result[buyerName].total_defect += typeCount;\n      result[buyerName].defects[typeName] = (result[buyerName].defects[typeName] || 0) + typeCount;\n    }\n  }\n}\n\nreturn Object.values(result).map(r => {\n  r.defect_percent = r.total_inspected > 0 \n    ? Number(((r.total_defect / r.total_inspected) * 100).toFixed(2)) \n    : 0;\n  return { json: r };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "6ca4a9ca-b9f2-4a26-b3ef-fbaa7f423f75",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Apnar process kora data ekhane thakbe\nconst lines = items.map(item => item.json);\n\n// Shob unique defect type ber kora (Row toiri korar jonno)\nconst allDefectTypes = [...new Set(lines.flatMap(l => Object.keys(l.defects)))];\n\n// Vertical HTML Table toiri kora\nlet html = `\n<style>\n  table { \n    border-collapse: collapse; \n    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; \n    width: 100%; \n    max-width: 800px; \n    margin: 20px auto; \n    box-shadow: 0 0 20px rgba(0,0,0,0.1); \n  }\n  td, th { border: 1px solid #333; padding: 12px; text-align: center; }\n  .label { \n    font-weight: bold; \n    background-color: #f8f9fa; \n    text-align: left; \n    width: 150px; \n    color: #333; \n  }\n  .header-row td { \n    background-color: #007bff; \n    color: white; \n    font-weight: bold; \n    font-size: 1.1em; \n  }\n  .percent-cell { color: #d9534f; font-weight: bold; }\n  .summary-header { \n    background-color: #e9ecef; \n    text-align: center; \n    font-weight: bold; \n    text-transform: uppercase;\n  }\n</style>\n\n<table>\n  <tr class=\"header-row\">\n    <td class=\"label\" style=\"background-color: #f8f9fa; color: #333;\">Buyer Name</td>\n    ${lines.map(l => `<td>${l.buyer || 'N/A'}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">Inspected Qty</td>\n    ${lines.map(l => `<td>${l.total_inspected}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">Defected Qty</td>\n    ${lines.map(l => `<td>${l.total_defect}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">Defect Percent</td>\n    ${lines.map(l => `<td class=\"percent-cell\">${l.defect_percent}%</td>`).join('')}\n  </tr>\n  \n  <tr>\n    <td class=\"label summary-header\" colspan=\"${lines.length + 1}\">Defect Breakdown</td>\n  </tr>\n\n  ${allDefectTypes.map(type => `\n    <tr>\n      <td class=\"label\">${type}</td>\n      ${lines.map(l => `<td>${l.defects[type] || '0'}</td>`).join('')}\n    </tr>\n  `).join('')}\n</table>`;\n\nreturn [{ json: { my_html: html } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        0
+      ],
+      "id": "a9c6eb66-3e6f-4539-bac6-572bc696de1e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "html_content": "={{ $node[\"Code in JavaScript1\"].json[\"my_html\"] }}"
+      },
+      "type": "n8n-nodes-htmlcsstopdf.htmlcsstopdf",
+      "typeVersion": 1,
+      "position": [
+        544,
+        256
+      ],
+      "id": "b75ccb8d-ccfd-4ae1-a5c1-9e213c98d4ff",
+      "name": "Convert HTML to PDF",
+      "credentials": {
+        "htmlcsstopdfApi": {
+          "id": "c4EIAJpM8RXvo4DU",
+          "name": "HTML to PDF account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// PDF node theke asha binary data dhora hochche\nlet binaryData = items[0].binary.data; \n\n// Bangladesh Time (Asia/Dhaka) onujayi date ebong time toiri kora\nconst now = new Date();\n\n// Date: DD-MM-YYYY format (Bangladesh Timezone)\nconst dateStr = now.toLocaleDateString('en-GB', { \n  timeZone: 'Asia/Dhaka' \n}).replace(/\\//g, '-'); \n\n// Time: 06-30 PM format (Bangladesh Timezone)\nconst timeOptions = { \n  hour: '2-digit', \n  minute: '2-digit', \n  hour12: true, \n  timeZone: 'Asia/Dhaka' \n};\nlet timeStr = now.toLocaleTimeString('en-US', timeOptions).replace(':', '-'); \n\n// Final Name: QC_report_12-01-2026_(06-30_PM).pdf\nbinaryData.fileName = `HOURLY_BUYER_WISE_report_${dateStr}_(${timeStr}).pdf`;\n\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        144
+      ],
+      "id": "1e32b5c9-2a7f-423e-b387-d68ee670a85e",
+      "name": "File name2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        []
+      ]
+    },
+    "Convert HTML to PDF": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "12a91327-a158-4219-a180-b476f26a4957",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6959ea33347bf86d96b48feaaf47fc7af8f58bebfdfb894690a15ef3d2d9374d"
+  },
+  "id": "59wGw9urXY6ygJR4",
+  "tags": []
+}

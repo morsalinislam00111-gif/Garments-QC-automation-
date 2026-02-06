@@ -1,0 +1,271 @@
+{
+  "name": "line wise trail",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -992,
+        144
+      ],
+      "id": "1640909d-a490-46e6-835a-555506c8874e",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk",
+          "mode": "list",
+          "cachedResultName": "Inline QC form",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L_kBqJr89vwvw9ocRExcG52OpwOcnrSDo59lpwHTWSk/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -768,
+        144
+      ],
+      "id": "0e3eb511-490b-41bb-9f09-74caca370698",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "JGx3Wwk2NRCBaXkR",
+          "name": "Dbl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst oneHourAgo = new Date(now.getTime() - (60 * 60 * 1000));\n\n// Filter logic\nreturn items.filter(item => {\n  // Apnar data onujayi \"Submitted at\" column bebohar kora hoyeche\n  const rowTime = new Date(item.json[\"Submitted at\"]);\n\n  // Jodi time thik moto na thake (Invalid Date) tobe bad jabe\n  if (isNaN(rowTime)) return false;\n\n  // Kebol golo 1 ghontar moddher data return hobe\n  return rowTime >= oneHourAgo && rowTime <= now;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        -176
+      ],
+      "id": "43ba77db-fd09-433a-9dd6-78b925fe22fa",
+      "name": "Filter last one hour data "
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = {};\n\nitems.forEach(item => {\n  // Key name check kora (extra space handle korar jonno)\n  const line = item.json[\"Line no\"] || item.json[\"Line no \"];\n  const inspected = Number(item.json[\"Inspected qty \"]) || Number(item.json[\"Inspected qty\"]) || 0;\n  const defectRaw = item.json[\"Defect type \"] || item.json[\"Defect type\"] || \"\";\n\n  if (line !== undefined && line !== null) {\n    if (!result[line]) {\n      result[line] = {\n        line: line,\n        total_inspected: 0,\n        total_defect: 0,\n        defects: {}\n      };\n    }\n\n    result[line].total_inspected += inspected;\n\n    // ১. কমা, সেমিকোলন বা নিউ লাইন দিয়ে আলাদা করা\n    const defectLines = defectRaw.split(/[\\n,;]+/); \n    \n    defectLines.forEach(singleDefect => {\n      // ২. \"Open seam(1)\" অথবা \"Hole 5\" - উভয় ফরম্যাট রিড করার জন্য Regex\n      // ([^()0-9,]+) -> সংখ্যা বা ব্র্যাকেট ছাড়া সব লেখা নেবে\n      // \\(?(\\d+)\\)? -> ব্র্যাকেটের ভেতরে বা বাইরে থাকা সংখ্যা নেবে\n      const match = singleDefect.match(/([^()0-9,]+)\\s*\\(?(\\d+)\\)?/);\n      \n      if (match) {\n        const typeName = match[1].trim(); \n        const typeCount = parseInt(match[2]) || 0; \n\n        if (typeName) {\n          result[line].total_defect += typeCount;\n          result[line].defects[typeName] = (result[line].defects[typeName] || 0) + typeCount;\n        }\n      }\n    });\n  }\n});\n\nreturn Object.values(result).map(r => {\n  r.defect_percent = r.total_inspected > 0 \n    ? Number(((r.total_defect / r.total_inspected) * 100).toFixed(2)) \n    : 0;\n  return { json: r };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        144
+      ],
+      "id": "d4a28195-8849-44a4-804f-64ba5a1a1091",
+      "name": "Line wise group "
+    },
+    {
+      "parameters": {
+        "jsCode": "// Apnar dewa process kora data ekhane input hisebe thakbe\nconst lines = items.map(item => item.json);\n\n// Shob unique defect type ber kora row toiri korar jonno\nconst allDefectTypes = [...new Set(lines.flatMap(l => Object.keys(l.defects)))];\n\n// Vertical HTML Table toiri kora\nlet html = `\n<style>\n  table { border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; min-width: 450px; margin: 20px auto; box-shadow: 0 0 20px rgba(0,0,0,0.1); }\n  td, th { border: 1px solid #333; padding: 12px; text-align: center; }\n  .label { font-weight: bold; background-color: #f8f9fa; text-align: left; width: 160px; color: #333; }\n  .header-row td { background-color: #ffffff; font-weight: bold; font-size: 1.1em; }\n  .percent-cell { color: #d9534f; font-weight: bold; }\n</style>\n<table>\n  <tr class=\"header-row\">\n    <td class=\"label\"></td>\n    ${lines.map(l => `<td>line ${l.line}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">inspected qty</td>\n    ${lines.map(l => `<td>${l.total_inspected}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">defected qty</td>\n    ${lines.map(l => `<td>${l.total_defect}</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\">defect percent</td>\n    ${lines.map(l => `<td class=\"percent-cell\">${l.defect_percent}%</td>`).join('')}\n  </tr>\n  <tr>\n    <td class=\"label\" colspan=\"${lines.length + 1}\" style=\"background-color: #e9ecef; text-align: center;\">defect type :</td>\n  </tr>\n  ${allDefectTypes.map(type => `\n    <tr>\n      <td class=\"label\">${type}</td>\n      ${lines.map(l => `<td>${l.defects[type] || '0'}</td>`).join('')}\n    </tr>\n  `).join('')}\n</table>`;\n\nreturn [{ json: { my_html: html } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        240
+      ],
+      "id": "95cf8075-8128-4264-a7c9-b8e27fa992d7",
+      "name": "Html"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PDF node theke asha binary data dhora hochche\nlet binaryData = items[0].binary.data; \n\n// Bangladesh Time (Asia/Dhaka) onujayi date ebong time toiri kora\nconst now = new Date();\n\n// Date: DD-MM-YYYY format (Bangladesh Timezone)\nconst dateStr = now.toLocaleDateString('en-GB', { \n  timeZone: 'Asia/Dhaka' \n}).replace(/\\//g, '-'); \n\n// Time: 06-30 PM format (Bangladesh Timezone)\nconst timeOptions = { \n  hour: '2-digit', \n  minute: '2-digit', \n  hour12: true, \n  timeZone: 'Asia/Dhaka' \n};\nlet timeStr = now.toLocaleTimeString('en-US', timeOptions).replace(':', '-'); \n\n// Final Name: QC_report_12-01-2026_(06-30_PM).pdf\nbinaryData.fileName = `HOURLY_LINE_WISE_report_${dateStr}_(${timeStr}).pdf`;\n\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        240
+      ],
+      "id": "15321cbd-22cf-4400-850c-bee058223267",
+      "name": "File name"
+    },
+    {
+      "parameters": {
+        "operation": "sendDocument",
+        "chatId": "6317099463",
+        "binaryData": true,
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        576,
+        240
+      ],
+      "id": "0fe47c57-2e96-407b-9379-f21ea0169c64",
+      "name": "Send a document",
+      "webhookId": "ee3e98e0-21ff-43ed-a139-f245f863bac0",
+      "credentials": {
+        "telegramApi": {
+          "id": "cOoUN5L47aHqVu9i",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.my_html }}",
+        "operation": "getPDF",
+        "margin": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-puppeteer.puppeteer",
+      "typeVersion": 1,
+      "position": [
+        128,
+        240
+      ],
+      "id": "eae48364-5044-4ced-b16a-ae7e32876aa9",
+      "name": "Puppeteer"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "11QVopCT7wOOYM-VAOhuTVTrgg_Qo-_LKsFqzeJ96bi4",
+          "mode": "list",
+          "cachedResultName": "Untitled spreadsheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/11QVopCT7wOOYM-VAOhuTVTrgg_Qo-_LKsFqzeJ96bi4/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/11QVopCT7wOOYM-VAOhuTVTrgg_Qo-_LKsFqzeJ96bi4/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -96,
+        48
+      ],
+      "id": "ca91afb2-377e-42c8-a946-fa0b73dc4b7a",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "JGx3Wwk2NRCBaXkR",
+          "name": "Dbl"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Line wise group ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter last one hour data ": {
+      "main": [
+        []
+      ]
+    },
+    "Line wise group ": {
+      "main": [
+        [
+          {
+            "node": "Html",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Html": {
+      "main": [
+        [
+          {
+            "node": "Puppeteer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File name": {
+      "main": [
+        [
+          {
+            "node": "Send a document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Puppeteer": {
+      "main": [
+        [
+          {
+            "node": "File name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "13b87cfa-a63d-459c-92f4-508403af1dfb",
+  "meta": {
+    "instanceId": "6959ea33347bf86d96b48feaaf47fc7af8f58bebfdfb894690a15ef3d2d9374d"
+  },
+  "id": "nsp6nGSpSFEL8guw",
+  "tags": []
+}

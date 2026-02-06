@@ -1,0 +1,179 @@
+{
+  "name": "Trend analysis",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        -128
+      ],
+      "id": "29366c9d-4a67-44b6-bcdf-3693c503906f",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1-Q5BMhcwLS7pyIqeUL9xonwPEygv613Z_Z8zEInwfNg",
+          "mode": "list",
+          "cachedResultName": "Trend",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1-Q5BMhcwLS7pyIqeUL9xonwPEygv613Z_Z8zEInwfNg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1-Q5BMhcwLS7pyIqeUL9xonwPEygv613Z_Z8zEInwfNg/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -48,
+        -128
+      ],
+      "id": "0d345574-1172-4aa0-a895-75bf011d0deb",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "JGx3Wwk2NRCBaXkR",
+          "name": "Dbl"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allData = $input.all();\n\n// ১. সময় সর্টিং (১২ ঘণ্টার ফরম্যাট হ্যান্ডেল করা)\nconst times = [...new Set(allData.map(i => i.json[\"time \"]))].filter(t => t).sort((a, b) => {\n    const parseTime = (t) => {\n        let [hr, min] = t.split(':').map(Number);\n        if (hr >= 1 && hr <= 7) hr += 12; \n        return hr * 60 + min;\n    };\n    return parseTime(a) - parseTime(b);\n});\n\nconst currentTime = times[times.length - 1];\nconst prev1Time = times[times.length - 2];\nconst prev2Time = times[times.length - 3];\n\nconst currentHourData = allData.filter(i => i.json[\"time \"] === currentTime);\nconst prev1Data = allData.filter(i => i.json[\"time \"] === prev1Time);\nconst prev2Data = allData.filter(i => i.json[\"time \"] === prev2Time);\n\nfunction parseDefects(text) {\n    let obj = {};\n    if (!text) return obj;\n    const defectRegex = /([a-zA-Z\\s/-]+)\\s*(\\d+)/g;\n    let match;\n    while ((match = defectRegex.exec(text)) !== null) {\n        const typeName = match[1].trim(); \n        const typeCount = parseInt(match[2]) || 0;\n        obj[typeName] = (obj[typeName] || 0) + typeCount;\n    }\n    return obj;\n}\n\nlet reportData = [];\nlet globalDefectSummary = {};\n\ncurrentHourData.forEach(item => {\n    let line = item.json[\"line \"];\n    let curDefects = parseDefects(item.json[\"defect type \"]);\n    \n    let p1Item = prev1Data.find(p => p.json[\"line \"] === line);\n    let p2Item = prev2Data.find(p => p.json[\"line \"] === line);\n    \n    let p1Defects = p1Item ? parseDefects(p1Item.json[\"defect type \"]) : {};\n    let p2Defects = p2Item ? parseDefects(p2Item.json[\"defect type \"]) : {};\n\n    let lineTotal = 0;\n    let lineTrends = {};\n    let allTypes = new Set([...Object.keys(curDefects), ...Object.keys(p1Defects), ...Object.keys(p2Defects)]);\n\n    allTypes.forEach(type => {\n        let cur = curDefects[type] || 0;\n        let v1 = p1Defects[type] || 0;\n        let v2 = p2Defects[type] || 0;\n        \n        let avg = (v1 + v2) / 2;\n        let percentage = avg > 0 ? Math.round(((cur - avg) / avg) * 100) : (cur > 0 ? 100 : 0);\n        let icon = percentage > 0 ? \"↑\" : (percentage < 0 ? \"↓\" : \"↔\");\n        \n        // HTML ছাড়া শুধু ডাটা পাঠানো হচ্ছে যাতে HTML Node সহজে হ্যান্ডেল করতে পারে\n        lineTrends[type] = {\n            qty: cur,\n            icon: icon,\n            percent: Math.abs(percentage),\n            trendText: `${cur} ${icon} ${Math.abs(percentage)}%`\n        };\n        \n        lineTotal += cur;\n        globalDefectSummary[type] = (globalDefectSummary[type] || 0) + cur;\n    });\n\n    reportData.push({ line, total: lineTotal, trends: lineTrends });\n});\n\nreturn {\n    fullTable: reportData,\n    defectSummary: globalDefectSummary,\n    time: currentTime,\n    top5Lines: [...reportData].sort((a, b) => b.total - a.total).slice(0, 5)\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        -128
+      ],
+      "id": "f972c478-034d-4157-81a2-4a3fd3c8ed36",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "chatId": "6317099463",
+        "text": "={{ $json.telegramMessage }}",
+        "replyMarkup": "=none",
+        "forceReply": {},
+        "replyKeyboardOptions": {},
+        "replyKeyboardRemove": {},
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        272
+      ],
+      "id": "1ca6b4ec-081a-4318-afda-a2b7f747e387",
+      "name": "Send a text message",
+      "webhookId": "af197abf-c6e0-4a89-980d-03140fc5a8fd",
+      "credentials": {
+        "telegramApi": {
+          "id": "cOoUN5L47aHqVu9i",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const analysis = $input.item.json;\nconst fullTable = analysis.fullTable || [];\nconst defectTypes = Object.keys(analysis.defectSummary || {});\n\nlet html = `\n<!DOCTYPE html>\n<html>\n<head>\n<style>\n    body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #f8fafc; padding: 20px; color: #333; }\n    .report-card { max-width: 1000px; margin: auto; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); overflow: hidden; }\n    \n    .header { background: #1a202c; color: white; padding: 20px; text-align: center; }\n    .header h2 { margin: 0; font-size: 22px; }\n    \n    .summary-section { display: flex; gap: 15px; padding: 20px; background: #fff; border-bottom: 2px solid #edf2f7; }\n    .card { flex: 1; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fdfdfd; }\n    \n    table { width: 100%; border-collapse: collapse; background: white; }\n    th { background: #2d3748; color: white; padding: 12px; font-size: 14px; border: 1px solid #4a5568; }\n    td { padding: 10px; border: 1px solid #e2e8f0; text-align: center; vertical-align: middle; }\n    \n    .row-label { background: #f7fafc; font-weight: bold; text-align: left; padding-left: 15px; width: 180px; }\n    .total-row { background: #ebf8ff; font-weight: bold; font-size: 15px; color: #2b6cb0; }\n    \n    /* Trend UI */\n    .trend-container { display: flex; flex-direction: column; align-items: center; justify-content: center; }\n    .qty { font-weight: bold; font-size: 15px; }\n    .trend-badge { font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; margin-top: 2px; white-space: nowrap; }\n    \n    .up { background: #fff5f5; color: #c53030; border: 1px solid #feb2b2; } /* Red for Increase */\n    .down { background: #f0fff4; color: #2f855a; border: 1px solid #9ae6b4; } /* Green for Decrease */\n    .stable { background: #f7fafc; color: #718096; border: 1px solid #e2e8f0; }\n</style>\n</head>\n<body>\n\n<div class=\"report-card\">\n    <div class=\"header\">\n        <h2>Production Quality Performance Dashboard</h2>\n        <div style=\"font-size:13px; opacity:0.8; margin-top:5px;\">Time Analyzed: ${analysis.time} | Generated: ${new Date().toLocaleTimeString()}</div>\n    </div>\n\n    <div class=\"summary-section\">\n        <div class=\"card\">\n            <h4 style=\"margin:0 0 10px 0; color:#c53030;\">🔥 Top 5 Risky Lines</h4>\n            ${(analysis.top5Lines || []).map(l => `<div style=\"display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;\"><span>Line ${l.line}</span> <b>${l.total} Defs</b></div>`).join('')}\n        </div>\n        <div class=\"card\">\n            <h4 style=\"margin:0 0 10px 0; color:#2b6cb0;\">📊 Top Defect Types</h4>\n            ${Object.entries(analysis.defectSummary || {}).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([t, v]) => `<div style=\"display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px;\"><span>${t}</span> <b>${v} Nos</b></div>`).join('')}\n        </div>\n    </div>\n\n    <table>\n        <thead>\n            <tr>\n                <th>Defect Categories</th>\n                ${fullTable.map(d => `<th>Line ${d.line}</th>`).join('')}\n            </tr>\n        </thead>\n        <tbody>\n            <tr class=\"total-row\">\n                <td class=\"row-label\">TOTAL DEFECTS</td>\n                ${fullTable.map(d => `<td>${d.total}</td>`).join('')}\n            </tr>\n            \n            ${defectTypes.map(type => `\n            <tr>\n                <td class=\"row-label\">${type}</td>\n                ${fullTable.map(line => {\n                    const t = (line.trends && line.trends[type]) ? line.trends[type] : {qty:0, icon:'↔', percent:0};\n                    let cls = 'stable';\n                    if (t.icon === '↑') cls = 'up';\n                    else if (t.icon === '↓') cls = 'down';\n\n                    return `\n                    <td>\n                        <div class=\"trend-container\">\n                            <span class=\"qty\">${t.qty}</span>\n                            <span class=\"trend-badge ${cls}\">${t.icon} ${t.percent}%</span>\n                        </div>\n                    </td>`;\n                }).join('')}\n            </tr>\n            `).join('')}\n        </tbody>\n    </table>\n</div>\n\n</body>\n</html>\n`;\n\nreturn { my_html: html };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -128
+      ],
+      "id": "bf87e42b-a864-47c8-8587-6b684d083245",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "html_content": "={{ $json.my_html }}"
+      },
+      "type": "n8n-nodes-htmlcsstopdf.htmlcsstopdf",
+      "typeVersion": 1,
+      "position": [
+        624,
+        -128
+      ],
+      "id": "5e365835-d51c-4b91-9722-4771571fc213",
+      "name": "Convert HTML to PDF",
+      "credentials": {
+        "htmlcsstopdfApi": {
+          "id": "c4EIAJpM8RXvo4DU",
+          "name": "HTML to PDF account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Convert HTML to PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "35b541b4-927e-4840-940b-dcd95e72b650",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6959ea33347bf86d96b48feaaf47fc7af8f58bebfdfb894690a15ef3d2d9374d"
+  },
+  "id": "HKnT4iGoUSxz372HE_GCJ",
+  "tags": []
+}
